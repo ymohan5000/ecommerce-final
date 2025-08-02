@@ -1,19 +1,16 @@
-import { NextRequest, NextResponse } from "next/server";
-import dbConnect from "@/utils/dbConnect";
-import Order from "@/models/Order";
+import { NextRequest, NextResponse } from 'next/server';
+import dbConnect from '@/utils/dbConnect';
+import Order from '@/models/Order';
 
-export async function GET(
-  _request: NextRequest,
-  { params }: { params: { trackingNumber: string } }
-) {
+export async function GET(request: NextRequest, context: { params: { trackingNumber: string } }) {
   try {
     await dbConnect();
 
-    const trackingNumber = params?.trackingNumber;
+    const trackingNumber = context.params?.trackingNumber;
 
     if (!trackingNumber) {
       return NextResponse.json(
-        { success: false, error: "Tracking number is required" },
+        { success: false, error: 'Tracking number is required' },
         { status: 400 }
       );
     }

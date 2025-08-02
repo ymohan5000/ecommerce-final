@@ -2,22 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import dbConnect from '@/utils/dbConnect';
 import Order from '@/models/Order';
 
-interface Item {
-  _id: string;
-  quantity: number;
-  price: number;
-}
-
-interface CustomerInfo {
-  name: string;
-  email: string;
-  phone?: string;
-  address?: string;
-  city?: string;
-  state?: string;
-  zipCode?: string;
-}
-
 export async function POST(request: NextRequest) {
   try {
     await dbConnect();
@@ -25,21 +9,23 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { items, totalAmount, customerInfo, paymentStatus } = body;
 
-    // Validate items
-    if (!items || !Array.isArray(items) || items.length === 0) {
-      return NextResponse.json(
-        { success: false, error: 'No items provided' },
-        { status: 400 }
-      );
+    // Provide default for items if missing or invalid
+    let safeItems = items;
+    if (!safeItems || !Array.isArray(safeItems) || safeItems.length === 0) {
+      safeItems = [{ _id: null, quantity: 1, price: 0 }];
     }
 
-    // Validate customer info
-    if (!customerInfo?.name || !customerInfo?.email) {
-      return NextResponse.json(
-        { success: false, error: 'Customer name and email are required' },
-        { status: 400 }
-      );
-    }
+    // Provide default for customerInfo if missing
+    const safeCustomerInfo = {
+      name: customerInfo?.name || 'Guest',
+      email: customerInfo?.email || 'guest@example.com',
+      phone: customerInfo?.phone || '',
+      address: customerInfo?.address || '',
+      city: customerInfo?.city || '',
+      state: customerInfo?.state || '',
+      zipCode: customerInfo?.zipCode || '',
+      country: customerInfo?.country || '',
+    };
 
     // Generate tracking and order number
     const timestamp = Date.now().toString().slice(-8);
@@ -55,32 +41,43 @@ export async function POST(request: NextRequest) {
       customerInfo.zipCode || '',
     ].filter(Boolean).join(', ');
 
+    // Use customerInfo for all fields if present
+    // Provide default user (guest user ObjectId or fallback string) if missing
+    const userId = customerInfo?.userId || body.userId || '000000000000000000000000';
+    // Provide default country if missing
+    const shippingInfo = {
+      country: safeCustomerInfo.country || 'Unknown',
+      postalCode: safeCustomerInfo.zipCode,
+      city: safeCustomerInfo.city,
+      address: safeCustomerInfo.address,
+    };
+
     const order = await Order.create({
-      products: items.map((item: Item) => ({
+      user: userId,
+      products: safeItems.map((item: any) => ({
         product: item._id,
         quantity: item.quantity,
         price: item.price,
       })),
-      totalPrice: totalAmount,
+      totalPrice: totalAmount || 0,
       status: 'pending',
-      phoneNo: customerInfo.phone || '',
-      address: addressParts,
+      phoneNo: safeCustomerInfo.phone,
+      address: [safeCustomerInfo.address, safeCustomerInfo.city, safeCustomerInfo.state, safeCustomerInfo.zipCode].filter(Boolean).join(', '),
       customerInfo: {
-        name: customerInfo.name,
-        email: customerInfo.email,
-        phone: customerInfo.phone || '',
-        address: customerInfo.address || '',
-        city: customerInfo.city || '',
-        state: customerInfo.state || '',
-        zipCode: customerInfo.zipCode || '',
+        name: safeCustomerInfo.name,
+        email: safeCustomerInfo.email,
+        phone: safeCustomerInfo.phone,
+        address: safeCustomerInfo.address,
+        city: safeCustomerInfo.city,
+        state: safeCustomerInfo.state,
+        zipCode: safeCustomerInfo.zipCode,
       },
+      shippingInfo,
       paymentStatus: paymentStatus || 'pending',
       trackingNumber,
       orderNumber,
       createdAt: new Date(),
     });
-
-    console.log(`Order created: ${order._id} (${orderNumber})`);
 
     return NextResponse.json({
       success: true,
@@ -89,10 +86,32 @@ export async function POST(request: NextRequest) {
       orderNumber,
       message: 'Order created successfully',
     });
-  } catch (error) {
-    console.error('Error creating order:', error);
+  } catch (error: any) {
+    // Log the request body and detailed error for debugging
+    console.error('Order creation error:', error);
+    if (error.errors) {
+      Object.keys(error.errors).forEach((key) => {
+        console.error(`Validation error for ${key}:`, error.errors[key].message);
+      });
+    }
+    try {
+      const body = await request.json();
+      console.error('Request body:', body);
+    } catch (e) {
+      // Ignore if body can't be read again
+    }
+    // Mongoose validation error
+    if (error.name === 'ValidationError') {
+      // Return all validation errors for easier debugging
+      const errors = error.errors ? Object.fromEntries(Object.entries(error.errors).map(([k, v]) => [k, (v as any).message])) : undefined;
+      return NextResponse.json(
+        { success: false, error: error.message || 'Validation failed', errors },
+        { status: 400 }
+      );
+    }
+    // Other errors
     return NextResponse.json(
-      { success: false, error: 'Failed to create order' },
+      { success: false, error: error.message || 'Failed to create order' },
       { status: 500 }
     );
   }

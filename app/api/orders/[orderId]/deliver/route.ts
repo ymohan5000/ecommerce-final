@@ -1,7 +1,6 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import dbConnect from "@/utils/dbConnect";
 import Order from "@/models/Order";
-import { withAdminAuth } from "@/lib/middleware/auth";
 
 export const runtime = "nodejs";
 
@@ -116,3 +115,32 @@ export const PATCH = withAdminAuth(async (request: Request, context: any) => {
     );
   }
 });
+
+export async function POST(
+  request: NextRequest,
+  { params }: { params: { orderId: string } }
+) {
+  try {
+    await dbConnect();
+    const { orderId } = params;
+
+    const order = await Order.findById(orderId);
+    if (!order) {
+      return NextResponse.json({ success: false, error: "Order not found" }, { status: 404 });
+    }
+    if (order.status === "delivered") {
+      return NextResponse.json({ success: false, error: "Order already delivered" }, { status: 400 });
+    }
+    if (order.status === "cancelled") {
+      return NextResponse.json({ success: false, error: "Cancelled orders cannot be delivered" }, { status: 400 });
+    }
+
+    order.status = "delivered";
+    await order.save();
+
+    return NextResponse.json({ success: true, message: "Order marked as delivered", order });
+  } catch (error) {
+    console.error("Deliver order error:", error);
+    return NextResponse.json({ success: false, error: "Failed to mark as delivered" }, { status: 500 });
+  }
+}

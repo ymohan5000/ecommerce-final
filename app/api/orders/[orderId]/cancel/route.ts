@@ -116,3 +116,32 @@ export const PATCH = withAuth(async (req: Request & { user?: any }, context?: an
     return NextResponse.json({ success: false, error: "Failed to cancel order" }, { status: 500 });
   }
 });
+
+export async function POST(
+  request: NextRequest,
+  { params }: { params: { orderId: string } }
+) {
+  try {
+    await dbConnect();
+    const { orderId } = params;
+
+    const order = await Order.findById(orderId);
+    if (!order) {
+      return NextResponse.json({ success: false, error: "Order not found" }, { status: 404 });
+    }
+    if (order.status === "cancelled") {
+      return NextResponse.json({ success: false, error: "Order already cancelled" }, { status: 400 });
+    }
+    if (order.status === "delivered") {
+      return NextResponse.json({ success: false, error: "Delivered orders cannot be cancelled" }, { status: 400 });
+    }
+
+    order.status = "cancelled";
+    await order.save();
+
+    return NextResponse.json({ success: true, message: "Order cancelled successfully", order });
+  } catch (error) {
+    console.error("Cancel order error:", error);
+    return NextResponse.json({ success: false, error: "Failed to cancel order" }, { status: 500 });
+  }
+}
